@@ -104,5 +104,58 @@ func TestIDNASeparators(t *testing.T) {
 	}
 }
 
-// TODO(nigeltao): test errors, once we've specified when ToASCII and ToUnicode
-// return errors.
+func TestIDNAErrors(t *testing.T) {
+	for _, tc := range []string{
+		"xn--example-.com",
+	} {
+		if got, err := ToASCII(tc); err == nil {
+			t.Errorf("ToASCII(%q) = %q, want error", tc, got)
+		}
+		if got, err := ToUnicode(tc); err == nil {
+			t.Errorf("ToUnicode(%q) = %q, want error", tc, got)
+		}
+	}
+}
+
+// TestIDNAPunycodeASCIILabel checks that an ACE label whose Punycode
+// decodes to a pure ASCII string is rejected by every profile, so that
+// e.g. "xn--google-.com" cannot masquerade as "google.com".
+func TestIDNAPunycodeASCIILabel(t *testing.T) {
+	profiles := []struct {
+		name    string
+		profile *Profile
+	}{
+		{"Punycode", Punycode},
+		{"Lookup", Lookup},
+		{"Display", Display},
+		{"Registration", Registration},
+	}
+	for _, p := range profiles {
+		t.Run(p.name, func(t *testing.T) {
+			for _, tc := range []string{
+				"xn--example-.com",
+				"xn--google-.com",
+				"www.xn--google-.com",
+				"xn--a-",
+				"xn--google-",
+				"xn--bcher-kva.xn--google-.com",
+			} {
+				if got, err := p.profile.ToASCII(tc); err == nil {
+					t.Errorf("ToASCII(%q) = %q, want error", tc, got)
+				}
+				if got, err := p.profile.ToUnicode(tc); err == nil {
+					t.Errorf("ToUnicode(%q) = %q, want error", tc, got)
+				}
+			}
+		})
+	}
+	// Valid ACE labels that decode to non-ASCII must still be accepted.
+	for _, tc := range []struct{ ascii, unicode string }{
+		{"xn--bcher-kva", "bücher"},
+		{"www.xn--mller-kva.de", "www.müller.de"},
+	} {
+		if got, err := Lookup.ToUnicode(tc.ascii); err != nil || got != tc.unicode {
+			t.Errorf("Lookup.ToUnicode(%q) = %q, %v; want %q, nil", tc.ascii, got, err, tc.unicode)
+		}
+	}
+}
